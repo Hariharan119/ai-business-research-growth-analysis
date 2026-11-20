@@ -1,0 +1,44 @@
+# Environment files containing secrets
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+*.egg-info/
+
+# Jupyter and Colab
+.ipynb_checkpoints/
+sample_data/
+.config/
+
+# Node.js and frontend build output
+node_modules/
+dist/
+build/
+.vite/
+coverage/
+
+# Logs and temporary files
+*.log
+logs/
+tmp/
+*.tmp
+*.bak
+
+# Local databases and caches
+*.sqlite3
+*.db
+.cache/
+
+# Operating system and editor files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
