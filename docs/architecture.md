@@ -3,147 +3,90 @@
 ## 1. Component Architecture
 
 ```mermaid
-flowchart TB
-    subgraph PRES [Presentation Layer]
-        USER[Analyst User]
-        FE[React Frontend<br/>TypeScript, Vite, Tailwind, Recharts, TanStack Query]
+flowchart LR
+    subgraph sg1[Users]
+        U[Analyst]
     end
 
-    subgraph APIL [API Layer - FastAPI]
-        GW[Versioned REST API and OpenAPI Docs]
-        MW[JWT Authentication, Rate Limiting and Request Validation]
-        JOBS[Background Job Manager and Status Tracking]
+    subgraph sg2[Application]
+        FE[React Dashboard]
+        API[FastAPI Backend]
+        DB[Azure SQL Database]
     end
 
-    subgraph EXT [External Public Data Sources]
-        SEC[SEC EDGAR API<br/>companyfacts and submissions]
-        GDELT[GDELT DOC API<br/>article metadata and links]
+    subgraph sg3[Public Data Sources]
+        SEC[SEC EDGAR<br/>financial filings]
+        GD[GDELT<br/>business news]
     end
 
-    subgraph ING [Data Ingestion Layer]
-        SECC[SEC Client<br/>User-Agent, rate limiting, caching]
-        GDC[GDELT Client<br/>retry, timeout handling, deduplication]
-        NORM[Normalisation Service<br/>XBRL tag mapping and period alignment]
+    subgraph sg4[Analysis and AI]
+        CALC[Python Analysis<br/>and Forecasting]
+        AG[Three AI Agents<br/>LangGraph]
+        LLM[LLM API]
     end
 
-    subgraph PERS [Persistence Layer]
-        REPO[Repositories<br/>SQLAlchemy and Alembic migrations]
-        DB[Azure SQL Database<br/>financials, news, forecasts, changes, reports, agent logs]
-    end
+    U -->|selects company| FE
+    FE -->|request| API
+    SEC -->|financial data| API
+    GD -->|news links| API
+    API -->|stores data| DB
+    DB -->|data| CALC
+    CALC -->|metrics and forecasts| AG
+    AG -.->|interpretation| LLM
+    AG -->|research report| DB
+    DB -->|stored report| API
+    API -->|results| FE
 
-    subgraph ANA [Deterministic Analytics Layer - Python]
-        FIN[Financial Analysis Service<br/>Pandas and NumPy growth, margins, ratios]
-        FCST[Forecasting Service<br/>baseline vs Statsmodels, backtesting, intervals]
-        CHG[Change Detection Engine<br/>configurable thresholds]
-        RULE[Rule-based Risk and Opportunity Signals]
-    end
-
-    subgraph ORCH [AI Orchestration Layer - LangGraph]
-        STATE[Shared Typed State<br/>Pydantic models]
-        A1[Agent 1<br/>Financial Analysis and Forecasting]
-        A2[Agent 2<br/>Business News Intelligence]
-        A3[Agent 3<br/>Strategic Research and Decision Support]
-        VAL[Evidence and Structured Output Validation]
-    end
-
-    LLM[Configurable LLM Provider<br/>selected through environment variables]
-
-    subgraph REPG [Reporting Layer]
-        RGEN[Research Report Generator<br/>evidence references]
-        PDF[PDF Export]
-    end
-
-    subgraph OPS [Cloud and DevOps]
-        KV[Azure Key Vault]
-        INS[Azure Application Insights]
-        GH[GitHub Actions CI/CD]
-        DOCK[Docker Container]
-    end
-
-    USER --> FE
-    FE -->|HTTPS REST| GW
-    GW --> MW
-    MW --> JOBS
-
-    JOBS --> SECC
-    JOBS --> GDC
-    SECC <-->|HTTPS| SEC
-    GDC <-->|HTTPS| GDELT
-    SECC --> NORM
-    GDC --> NORM
-    NORM --> REPO
-    REPO <--> DB
-
-    DB --> FIN
-    FIN --> FCST
-    FIN --> RULE
-    DB --> CHG
-    CHG --> RULE
-
-    JOBS -->|start workflow| STATE
-    STATE -->|parallel| A1
-    STATE -->|parallel| A2
-    FIN --> A1
-    FCST --> A1
-    RULE --> A1
-    DB --> A2
-    A1 --> A3
-    A2 --> A3
-    CHG --> A3
-    A1 -.-> LLM
-    A2 -.-> LLM
-    A3 -.-> LLM
-
-    A3 --> VAL
-    VAL --> RGEN
-    RGEN --> PDF
-    RGEN -->|save report and execution history| REPO
-    RGEN -->|report and PDF| GW
-
-    KV -.->|secrets| GW
-    INS -.->|logs and metrics| GW
-    GH -->|build and deploy| DOCK
-    DOCK -.->|hosts| GW
-
-    classDef ext fill:#fff3e0,stroke:#e65100,color:#000
-    classDef ai fill:#e8eaf6,stroke:#283593,color:#000
-    classDef store fill:#e0f2f1,stroke:#00695c,color:#000
-    classDef ops fill:#f3e5f5,stroke:#6a1b9a,color:#000
-    class SEC,GDELT,LLM ext
-    class STATE,A1,A2,A3,VAL ai
-    class DB,REPO store
-    class KV,INS,GH,DOCK ops
+    classDef user fill:#E8F1FB,stroke:#2B6CB0,color:#1A365D
+    classDef app fill:#E6FFFA,stroke:#2C7A7B,color:#234E52
+    classDef data fill:#FFF5E6,stroke:#C05621,color:#7B341E
+    classDef ai fill:#F3E8FF,stroke:#6B46C1,color:#44337A
+    class U user
+    class FE,API,DB app
+    class SEC,GD data
+    class CALC,AG,LLM ai
 ```
 
 ## 2. Data Flow
 
 ```mermaid
-flowchart TD
-    S1[Step 1 - User selects a company] --> S2[Step 2 - React sends request to FastAPI]
-    S2 --> S3[Step 3 - FastAPI validates the request]
-    S3 --> S4[Step 4 - Backend retrieves SEC financial data and GDELT news]
-    S4 --> S5[Step 5 - Data is cleaned and normalised]
-    S5 --> S6[Step 6 - Processed data saved in Azure SQL]
-    S6 --> S7[Step 7 - Financial calculations and forecasting]
-    S7 --> S8[Step 8 - LangGraph coordinates three AI agents]
-    S8 --> S9[Step 9 - Final agent combines findings and generates insights]
-    S9 --> S10[Step 10 - Evidence-backed report saved in Azure SQL]
-    S10 --> S11[Step 11 - React displays final results]
+flowchart LR
+    S1[Step 1<br/>Select company] --> S2[Step 2<br/>Collect SEC and news data]
+    S2 --> S3[Step 3<br/>Clean and store data]
+    S3 --> S4[Step 4<br/>Calculate growth<br/>and forecasts]
+    S4 --> S5[Step 5<br/>AI agents<br/>analyse findings]
+    S5 --> S6[Step 6<br/>Save and display<br/>research report]
+
+    classDef step fill:#E8F1FB,stroke:#2B6CB0,color:#1A365D
+    classDef final fill:#E6FFFA,stroke:#2C7A7B,color:#234E52
+    class S1,S2,S3,S4,S5 step
+    class S6 final
 ```
 
 ## 3. LangGraph Agent Workflow
 
 ```mermaid
 flowchart TD
-    Start[Research request] --> V[Validate company selection]
-    V --> F[Fetch and prepare data]
-    F --> A1[Financial Analysis and Forecasting Agent]
-    F --> A2[Business News Intelligence Agent]
-    A1 --> A3[Strategic Research and Decision Support Agent]
-    A2 --> A3
-    A3 --> VE[Validate evidence and structured output]
-    VE --> SV[Save report and agent execution history]
-    SV --> Done[Display results in React]
+    Start[Research request] --> Prep[Validate request<br/>and prepare data]
+
+    subgraph sg1[Run in parallel]
+        FA[Financial Agent<br/>numbers and forecasts]
+        NA[News Agent<br/>headlines and developments]
+    end
+
+    Prep --> FA
+    Prep --> NA
+    FA --> SA[Strategic Agent<br/>combines both findings]
+    NA --> SA
+    SA --> Check[Evidence check]
+    Check --> Out[Save and display report]
+
+    classDef agent fill:#F3E8FF,stroke:#6B46C1,color:#44337A
+    classDef step fill:#E8F1FB,stroke:#2B6CB0,color:#1A365D
+    classDef final fill:#E6FFFA,stroke:#2C7A7B,color:#234E52
+    class FA,NA,SA agent
+    class Start,Prep,Check step
+    class Out final
 ```
 
 ## 4. Sequence Diagram
