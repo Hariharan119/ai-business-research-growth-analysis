@@ -3,31 +3,116 @@
 ## 1. Component Architecture
 
 ```mermaid
-flowchart TD
-    U[User] --> FE[React Frontend]
-    FE -->|REST requests| API[FastAPI Backend]
-    API --> AUTH[Authentication and Request Validation]
-    AUTH --> DP[Data Processing and Normalisation Service]
-    SEC[SEC EDGAR API] --> DP
-    GD[GDELT DOC API] --> DP
-    DP --> DB[Azure SQL Database]
-    DB --> FIN[Financial Analysis Service]
-    FIN --> FC[Growth Forecasting Service]
-    AUTH --> LG[LangGraph Orchestration]
-    LG --> A1[Financial Analysis and Forecasting Agent]
-    LG --> A2[Business News Intelligence Agent]
+flowchart TB
+    subgraph PRES [Presentation Layer]
+        USER[Analyst User]
+        FE[React Frontend<br/>TypeScript, Vite, Tailwind, Recharts, TanStack Query]
+    end
+
+    subgraph APIL [API Layer - FastAPI]
+        GW[Versioned REST API and OpenAPI Docs]
+        MW[JWT Authentication, Rate Limiting and Request Validation]
+        JOBS[Background Job Manager and Status Tracking]
+    end
+
+    subgraph EXT [External Public Data Sources]
+        SEC[SEC EDGAR API<br/>companyfacts and submissions]
+        GDELT[GDELT DOC API<br/>article metadata and links]
+    end
+
+    subgraph ING [Data Ingestion Layer]
+        SECC[SEC Client<br/>User-Agent, rate limiting, caching]
+        GDC[GDELT Client<br/>retry, timeout handling, deduplication]
+        NORM[Normalisation Service<br/>XBRL tag mapping and period alignment]
+    end
+
+    subgraph PERS [Persistence Layer]
+        REPO[Repositories<br/>SQLAlchemy and Alembic migrations]
+        DB[Azure SQL Database<br/>financials, news, forecasts, changes, reports, agent logs]
+    end
+
+    subgraph ANA [Deterministic Analytics Layer - Python]
+        FIN[Financial Analysis Service<br/>Pandas and NumPy growth, margins, ratios]
+        FCST[Forecasting Service<br/>baseline vs Statsmodels, backtesting, intervals]
+        CHG[Change Detection Engine<br/>configurable thresholds]
+        RULE[Rule-based Risk and Opportunity Signals]
+    end
+
+    subgraph ORCH [AI Orchestration Layer - LangGraph]
+        STATE[Shared Typed State<br/>Pydantic models]
+        A1[Agent 1<br/>Financial Analysis and Forecasting]
+        A2[Agent 2<br/>Business News Intelligence]
+        A3[Agent 3<br/>Strategic Research and Decision Support]
+        VAL[Evidence and Structured Output Validation]
+    end
+
+    LLM[Configurable LLM Provider<br/>selected through environment variables]
+
+    subgraph REPG [Reporting Layer]
+        RGEN[Research Report Generator<br/>evidence references]
+        PDF[PDF Export]
+    end
+
+    subgraph OPS [Cloud and DevOps]
+        KV[Azure Key Vault]
+        INS[Azure Application Insights]
+        GH[GitHub Actions CI/CD]
+        DOCK[Docker Container]
+    end
+
+    USER --> FE
+    FE -->|HTTPS REST| GW
+    GW --> MW
+    MW --> JOBS
+
+    JOBS --> SECC
+    JOBS --> GDC
+    SECC <-->|HTTPS| SEC
+    GDC <-->|HTTPS| GDELT
+    SECC --> NORM
+    GDC --> NORM
+    NORM --> REPO
+    REPO <--> DB
+
+    DB --> FIN
+    FIN --> FCST
+    FIN --> RULE
+    DB --> CHG
+    CHG --> RULE
+
+    JOBS -->|start workflow| STATE
+    STATE -->|parallel| A1
+    STATE -->|parallel| A2
     FIN --> A1
-    FC --> A1
+    FCST --> A1
+    RULE --> A1
     DB --> A2
-    A1 --> A3[Strategic Research and Decision Support Agent]
+    A1 --> A3
     A2 --> A3
-    A1 -.-> LLM[Configurable LLM API]
+    CHG --> A3
+    A1 -.-> LLM
     A2 -.-> LLM
     A3 -.-> LLM
-    A3 --> RPT[Research Report Generation]
-    RPT --> DB
-    RPT --> API
-    API -->|Results returned to React| FE
+
+    A3 --> VAL
+    VAL --> RGEN
+    RGEN --> PDF
+    RGEN -->|save report and execution history| REPO
+    RGEN -->|report and PDF| GW
+
+    KV -.->|secrets| GW
+    INS -.->|logs and metrics| GW
+    GH -->|build and deploy| DOCK
+    DOCK -.->|hosts| GW
+
+    classDef ext fill:#fff3e0,stroke:#e65100,color:#000
+    classDef ai fill:#e8eaf6,stroke:#283593,color:#000
+    classDef store fill:#e0f2f1,stroke:#00695c,color:#000
+    classDef ops fill:#f3e5f5,stroke:#6a1b9a,color:#000
+    class SEC,GDELT,LLM ext
+    class STATE,A1,A2,A3,VAL ai
+    class DB,REPO store
+    class KV,INS,GH,DOCK ops
 ```
 
 ## 2. Data Flow
