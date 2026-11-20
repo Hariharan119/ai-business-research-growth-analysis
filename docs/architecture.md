@@ -3,62 +3,62 @@
 ## 1. Component Architecture
 
 ```mermaid
-flowchart LR
-    U["User"] --> FE["React Frontend"]
-    FE -->|"REST requests"| API["FastAPI Backend"]
-    API --> AUTH["Authentication and Request Validation"]
-    AUTH --> DP["Data Processing and Normalisation Service"]
-    SEC["SEC EDGAR API"] --> DP
-    GD["GDELT DOC API"] --> DP
-    DP --> DB[("Azure SQL Database")]
-    DB --> FIN["Financial Analysis Service"]
-    FIN --> FC["Growth Forecasting Service"]
-    AUTH --> LG["LangGraph Orchestration"]
-    LG --> A1["Financial Analysis and Forecasting Agent"]
-    LG --> A2["Business News Intelligence Agent"]
+flowchart TD
+    U[User] --> FE[React Frontend]
+    FE -->|REST requests| API[FastAPI Backend]
+    API --> AUTH[Authentication and Request Validation]
+    AUTH --> DP[Data Processing and Normalisation Service]
+    SEC[SEC EDGAR API] --> DP
+    GD[GDELT DOC API] --> DP
+    DP --> DB[Azure SQL Database]
+    DB --> FIN[Financial Analysis Service]
+    FIN --> FC[Growth Forecasting Service]
+    AUTH --> LG[LangGraph Orchestration]
+    LG --> A1[Financial Analysis and Forecasting Agent]
+    LG --> A2[Business News Intelligence Agent]
     FIN --> A1
     FC --> A1
     DB --> A2
-    A1 --> A3["Strategic Research and Decision Support Agent"]
+    A1 --> A3[Strategic Research and Decision Support Agent]
     A2 --> A3
-    A1 -.-> LLM["Configurable LLM API"]
+    A1 -.-> LLM[Configurable LLM API]
     A2 -.-> LLM
     A3 -.-> LLM
-    A3 --> RPT["Research Report Generation"]
+    A3 --> RPT[Research Report Generation]
     RPT --> DB
     RPT --> API
-    API -->|"Results returned to React"| FE
+    API -->|Results returned to React| FE
 ```
 
 ## 2. Data Flow
 
 ```mermaid
 flowchart TD
-    S1["1. User selects a company"] --> S2["2. React sends request to FastAPI"]
-    S2 --> S3["3. FastAPI validates the request"]
-    S3 --> S4["4. Backend retrieves SEC financial data and GDELT news"]
-    S4 --> S5["5. Data is cleaned and normalised"]
-    S5 --> S6[("6. Processed data saved in Azure SQL")]
-    S6 --> S7["7. Financial calculations and forecasting"]
-    S7 --> S8["8. LangGraph coordinates three AI agents"]
-    S8 --> S9["9. Final agent combines findings and generates insights"]
-    S9 --> S10[("10. Evidence-backed report saved in Azure SQL")]
-    S10 --> S11["11. React displays final results"]
+    S1[Step 1 - User selects a company] --> S2[Step 2 - React sends request to FastAPI]
+    S2 --> S3[Step 3 - FastAPI validates the request]
+    S3 --> S4[Step 4 - Backend retrieves SEC financial data and GDELT news]
+    S4 --> S5[Step 5 - Data is cleaned and normalised]
+    S5 --> S6[Step 6 - Processed data saved in Azure SQL]
+    S6 --> S7[Step 7 - Financial calculations and forecasting]
+    S7 --> S8[Step 8 - LangGraph coordinates three AI agents]
+    S8 --> S9[Step 9 - Final agent combines findings and generates insights]
+    S9 --> S10[Step 10 - Evidence-backed report saved in Azure SQL]
+    S10 --> S11[Step 11 - React displays final results]
 ```
 
 ## 3. LangGraph Agent Workflow
 
 ```mermaid
 flowchart TD
-    Start(["Research request"]) --> V["Validate company selection"]
-    V --> F["Fetch and prepare data"]
-    F --> A1["Financial Analysis and Forecasting Agent"]
-    F --> A2["Business News Intelligence Agent"]
-    A1 --> A3["Strategic Research and Decision Support Agent"]
+    Start[Research request] --> V[Validate company selection]
+    V --> F[Fetch and prepare data]
+    F --> A1[Financial Analysis and Forecasting Agent]
+    F --> A2[Business News Intelligence Agent]
+    A1 --> A3[Strategic Research and Decision Support Agent]
     A2 --> A3
-    A3 --> VE["Validate evidence and structured output"]
-    VE --> SV["Save report and agent execution history"]
-    SV --> Done(["Display results in React"])
+    A3 --> VE[Validate evidence and structured output]
+    VE --> SV[Save report and agent execution history]
+    SV --> Done[Display results in React]
 ```
 
 ## 4. Sequence Diagram
