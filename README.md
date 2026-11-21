@@ -1,6 +1,6 @@
 # Multi-Agent AI-Powered Business Research & Growth Analysis System
 
-**Domain:** Finance  
+**Domain:** Finance
 **Status:** Planning and architecture (Day 1). Application code is not yet implemented.
 
 ## Project Overview
