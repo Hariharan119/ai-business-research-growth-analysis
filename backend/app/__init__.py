@@ -1,0 +1,1 @@
+"""AI Business Research application."""
