@@ -19,7 +19,7 @@ class JsonFileCache:
 
     def get(self, key: str, allow_stale: bool = False) -> Any | None:
         path = self._path(key)
-        try: 
+        try:
             payload = json.loads(path.read_text(encoding="utf-8"))
             age = time.time() - float(payload["cached_at"])
             if not allow_stale and age > self.ttl_seconds:
