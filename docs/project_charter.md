@@ -35,7 +35,7 @@ Users select a supported company and receive financial analysis, growth trends, 
 7. Generate evidence-backed research reports.
 
 ## Project Scope
-- Supported companies: Microsoft, NVIDIA, Apple, Alphabet, Amazon and Meta Platforms (central configuration).
+- Implemented companies: Microsoft and NVIDIA. Apple, Alphabet and Amazon are planned.
 - Annual and quarterly financial analysis.
 - Basic revenue forecasting with uncertainty intervals where supported.
 - News collection, deduplication, categorisation and summarisation.
