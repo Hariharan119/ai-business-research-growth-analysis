@@ -5,6 +5,8 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import time
+from collections import deque
 from dataclasses import dataclass
 from typing import Any, Optional, TypeVar
 
@@ -18,8 +20,57 @@ logger = logging.getLogger(__name__)
 
 T = TypeVar("T", bound=BaseModel)
 
-RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
+# 400 is retried only for invalid generated JSON (see _is_json_generation_error);
+# every other 400 is raised immediately in _send.
+RETRYABLE_STATUS_CODES = {400, 429, 500, 502, 503, 504}
 MAX_RETRY_AFTER_SECONDS = 30.0
+
+# Client-side tokens-per-minute limiter. The provider rejects a request when the
+# tokens of the last 60 seconds plus the new request (prompt + reserved
+# completion) exceed its per-minute limit, so wait for room instead of failing.
+TOKEN_WINDOW_SECONDS = 60.0
+_token_log: deque = deque()  # entries are [timestamp, tokens]
+_monotonic = time.monotonic
+_sleep = asyncio.sleep
+
+
+def _estimate_request_tokens(body: Optional[dict]) -> int:
+    """Conservative estimate: about 3 characters per prompt token plus the reserved completion."""
+    if not body or "messages" not in body:
+        return 0
+    prompt_chars = sum(len(str(message.get("content") or "")) for message in body["messages"])
+    reserved = int(body.get("max_completion_tokens") or body.get("max_tokens") or 1024)
+    return prompt_chars // 3 + reserved
+
+
+async def _wait_for_token_budget(tokens: int, limit: int) -> Optional[list]:
+    """Wait until `tokens` fit into the rolling one-minute window, then record them."""
+    if tokens <= 0 or limit <= 0:
+        return None
+    while True:
+        now = _monotonic()
+        while _token_log and now - _token_log[0][0] >= TOKEN_WINDOW_SECONDS:
+            _token_log.popleft()
+        used = sum(entry[1] for entry in _token_log)
+        if not _token_log or used + tokens <= limit:
+            entry = [now, tokens]
+            _token_log.append(entry)
+            return entry
+        wait = TOKEN_WINDOW_SECONDS - (now - _token_log[0][0]) + 0.5
+        logger.info("llm_rate_limit_wait", extra={"seconds": round(wait, 1), "tokens": tokens, "used": used})
+        await _sleep(wait)
+
+
+def _record_actual_usage(entry: Optional[list], response: httpx.Response) -> None:
+    """Replace the estimate with the provider-reported token usage when available."""
+    if entry is None:
+        return
+    try:
+        total = int((response.json().get("usage") or {}).get("total_tokens") or 0)
+    except (ValueError, AttributeError, TypeError):
+        return
+    if total > 0:
+        entry[1] = total
 
 
 @dataclass
@@ -51,6 +102,16 @@ def _error_message(response: httpx.Response) -> str:
     except (ValueError, AttributeError):
         pass
     return response.text[:300]
+
+
+def _is_json_generation_error(response: httpx.Response) -> bool:
+    """The provider rejects json_object output that is not valid JSON; regenerating usually succeeds."""
+    message = _error_message(response).lower()
+    return (
+        "failed to validate json" in message
+        or "failed to generate json" in message
+        or "json_validate_failed" in response.text
+    )
 
 
 def _retry_after(response: Optional[httpx.Response]) -> Optional[float]:
@@ -167,9 +228,11 @@ class LlmClient:
         url = self._settings.llm_base_url.rstrip("/") + path
         client = self._ensure_client()
 
+        estimated_tokens = _estimate_request_tokens(body)
         attempt = 1
         while True:
             response: Optional[httpx.Response] = None
+            entry = await _wait_for_token_budget(estimated_tokens, self._settings.llm_tokens_per_minute)
             try:
                 response = await client.request(method, url, headers=headers, json=body)
             except (httpx.TimeoutException, httpx.TransportError) as exc:
@@ -180,9 +243,10 @@ class LlmClient:
                     raise LlmUnavailableError(f"LLM provider rejected the credentials (HTTP {status}).")
                 if status == 404:
                     raise LlmUnavailableError("LLM model or endpoint not found (HTTP 404). Check LLM_MODEL and LLM_BASE_URL.")
-                if status == 400:
+                if status == 400 and not _is_json_generation_error(response):
                     raise LlmResponseError(f"LLM request rejected (HTTP 400): {_error_message(response)}")
                 if status < 400:
+                    _record_actual_usage(entry, response)
                     return response
                 if status == 413:
                     raise LlmUnavailableError(
@@ -197,7 +261,11 @@ class LlmClient:
                     f"{_error_message(response)}"
                 )
 
+            if entry is not None:
+                entry[1] = 0  # rejected or failed requests do not use the provider's quota
             if attempt >= self._settings.llm_max_attempts:
+                if response is not None and response.status_code == 400:
+                    raise LlmResponseError(error)  # invalid JSON on every attempt
                 raise LlmUnavailableError(error)
             delay = _retry_after(response)
             if delay is None:

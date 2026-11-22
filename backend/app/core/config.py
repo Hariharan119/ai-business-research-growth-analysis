@@ -45,7 +45,10 @@ class Settings(BaseSettings):
     llm_model: str = ""
     llm_temperature: float = Field(default=0.1, ge=0, le=2)
     llm_timeout_seconds: float = 90.0
-    llm_max_attempts: int = Field(default=3, ge=1, le=6)
+    # Six attempts lets Groq retry-after waits clear the 8,000 tokens-per-minute window.
+    llm_max_attempts: int = Field(default=6, ge=1, le=6)
+    # Provider tokens-per-minute limit (Groq free tier: 8,000). 0 disables the client-side limiter.
+    llm_tokens_per_minute: int = Field(default=8000, ge=0)
 
     http_timeout_seconds: float = 30.0
     http_max_attempts: int = Field(default=3, ge=1, le=10)

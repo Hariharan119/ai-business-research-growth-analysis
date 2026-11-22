@@ -210,7 +210,7 @@ actionable strategic recommendations.
                 user=user_prompt,
                 schema=StrategicAgentOutput,
                 usage=usage,
-                max_completion_tokens=1500,
+                max_completion_tokens=2400,
             )
 
         # Retain only evidence URLs originating from upstream agents, and do
