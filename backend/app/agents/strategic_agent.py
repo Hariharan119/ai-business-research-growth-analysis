@@ -3,6 +3,7 @@ import json
 import logging
 from typing import Any
 
+from app.core.companies import SUPPORTED_TICKERS
 from app.core.config import get_settings
 from app.services.llm_client import LlmClient, TokenUsage
 from app.schemas.agent_schemas import (
@@ -135,10 +136,10 @@ async def run_strategic_agent(
 
     ticker = str(state.get("ticker", "")).strip().upper()
 
-    if ticker not in {"MSFT", "NVDA"}:
+    if ticker not in SUPPORTED_TICKERS:
         return {
             "strategic_agent_error": (
-                f"Unsupported ticker: {ticker}. Use MSFT or NVDA."
+                f"Unsupported ticker: {ticker}. Supported tickers: {', '.join(sorted(SUPPORTED_TICKERS))}."
             )
         }
 
@@ -187,6 +188,8 @@ Rules:
 13. Do not claim that a company has a capability or problem unless
     the supplied evidence supports that conclusion.
 14. Return output matching the requested Pydantic JSON schema.
+15. Every strategic priority must include at least one supporting_evidence
+    item whose source_url is copied exactly from the supplied input.
 
 Create a concise executive summary and a small number of prioritized,
 actionable strategic recommendations.
@@ -207,10 +210,13 @@ actionable strategic recommendations.
                 user=user_prompt,
                 schema=StrategicAgentOutput,
                 usage=usage,
+                max_completion_tokens=1500,
             )
 
-        # Retain only evidence URLs originating from upstream agents.
+        # Retain only evidence URLs originating from upstream agents, and do
+        # not present a recommendation as evidence-backed when none remain.
         safe_priorities = []
+        removed_priorities = []
 
         for priority in result.strategic_priorities:
             safe_evidence = [
@@ -219,14 +225,28 @@ actionable strategic recommendations.
                 if item.source_url in allowed_urls
             ]
 
+            if not safe_evidence:
+                removed_priorities.append(priority.priority)
+                continue
+
             safe_priorities.append(
                 priority.model_copy(
                     update={"supporting_evidence": safe_evidence}
                 )
             )
 
+        limitations = list(result.limitations)
+        if removed_priorities:
+            limitations.append(
+                "Removed recommendation(s) without traceable supporting evidence: "
+                + "; ".join(removed_priorities)
+            )
+
         result = result.model_copy(
-            update={"strategic_priorities": safe_priorities}
+            update={
+                "strategic_priorities": safe_priorities,
+                "limitations": limitations,
+            }
         )
 
         return {

@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 from typing import Any, Iterable, Optional
 
 from app.schemas.news import NormalizedArticle
-from app.utils.text import canonicalize_url, normalize_title, sha256_hex
+from app.utils.text import canonicalize_url, extract_plain_url, normalize_title, sha256_hex
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +34,7 @@ def _clean(value: Any, limit: int) -> Optional[str]:
 def _parse_article(item: Any) -> Optional[NormalizedArticle]:
     if not isinstance(item, dict) or item.get("duplicate") is True:
         return None
-    url = str(item.get("link") or "").strip()
+    url = extract_plain_url(str(item.get("link") or ""))
     headline = _clean(item.get("title"), MAX_HEADLINE_LENGTH)
     published_at = _parse_pub_date(item.get("pubDate"))
     if not url.lower().startswith(("http://", "https://")) or len(url) > MAX_URL_LENGTH:

@@ -1,9 +1,12 @@
 
+import asyncio
 import json
 import logging
 from typing import Any
 
 from app.database.session import get_session_factory
+from app.core.exceptions import LlmResponseError
+from app.core.companies import SUPPORTED_TICKERS
 from app.core.config import get_settings
 from app.services.news_intelligence_service import analyze_company_news
 from app.services.llm_client import LlmClient, TokenUsage
@@ -101,10 +104,10 @@ async def run_news_agent(
 
     ticker = str(state.get("ticker", "")).strip().upper()
 
-    if ticker not in {"MSFT", "NVDA"}:
+    if ticker not in SUPPORTED_TICKERS:
         return {
             "news_agent_error": (
-                f"Unsupported ticker: {ticker}. Use MSFT or NVDA."
+                f"Unsupported ticker: {ticker}. Supported tickers: {', '.join(sorted(SUPPORTED_TICKERS))}."
             )
         }
 
@@ -129,6 +132,18 @@ async def run_news_agent(
             )
 
         context = _compact_news_context(news_data)
+        # Trim the news context to stay within the provider token limit.
+        context = dict(context)
+        trimmed_articles = []
+        for article in context.get("articles", [])[:20]:
+            compact_article = dict(article)
+            compact_article["snippet"] = str(compact_article.get("snippet") or "")[:300]
+            trimmed_articles.append(compact_article)
+        while trimmed_articles and len(json.dumps(
+            {**context, "articles": trimmed_articles}, default=str, ensure_ascii=False
+        )) > 12000:
+            trimmed_articles.pop()
+        context["articles"] = trimmed_articles
         evidence = _collect_news_evidence(news_data)
         allowed_urls = {item.source_url for item in evidence}
 
@@ -166,12 +181,59 @@ Rules:
         usage = TokenUsage()
 
         async with LlmClient(settings) as client:
-            result = await client.complete_json(
-                system=system_prompt,
-                user=user_prompt,
-                schema=NewsAgentOutput,
-                usage=usage,
-            )
+            try:
+                result = await client.complete_json(
+                    system=system_prompt,
+                    user=user_prompt,
+                    schema=NewsAgentOutput,
+                    usage=usage,
+                    max_completion_tokens=2400,
+                )
+
+            except LlmResponseError as exc:
+                if "Failed to generate JSON" not in str(exc):
+                    raise
+
+                logger.warning(
+                    "Groq rejected News Agent JSON generation; "
+                    "retrying once with reduced news context."
+                )
+
+                await asyncio.sleep(5)
+
+                # Keep the original evidence allow-list, but reduce
+                # the context sent to the model for the fallback attempt.
+                fallback_context = dict(context)
+                fallback_articles = []
+
+                for article in context.get("articles", [])[:10]:
+                    compact_article = dict(article)
+                    compact_article["snippet"] = str(
+                        compact_article.get("snippet") or ""
+                    )[:400]
+                    fallback_articles.append(compact_article)
+
+                fallback_context["articles"] = fallback_articles
+
+                fallback_user_prompt = (
+                    f"Analyze business news for {ticker}.\n\n"
+                    "Use only the following verified backend news data. "
+                    "Return one valid JSON object matching the schema. "
+                    "Use empty arrays when evidence is insufficient.\n\n"
+                    + json.dumps(
+                        fallback_context,
+                        default=str,
+                        ensure_ascii=False
+                    )
+                )
+
+                result = await client.complete_json(
+                    system=system_prompt,
+                    user=fallback_user_prompt,
+                    schema=NewsAgentOutput,
+                    usage=usage,
+                    max_completion_tokens=2400,
+                )
 
         # Reject any LLM-generated evidence URL not found in backend data.
         safe_risks = [

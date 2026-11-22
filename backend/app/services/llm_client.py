@@ -103,6 +103,7 @@ class LlmClient:
         user: str,
         schema: type[T],
         usage: Optional[TokenUsage] = None,
+        max_completion_tokens: Optional[int] = None,
     ) -> T:
         """Request a JSON object that conforms to the schema; one repair attempt is made on invalid output."""
         instructions = (
@@ -115,7 +116,9 @@ class LlmClient:
         ]
         last_error: Optional[Exception] = None
         for _attempt in range(2):
-            text = await self._chat(messages, usage)
+            text = await self._chat(
+                messages, usage, max_completion_tokens
+            )
             try:
                 return schema.model_validate_json(_extract_json(text))
             except (ValidationError, ValueError) as exc:
@@ -126,7 +129,12 @@ class LlmClient:
                 ]
         raise LlmResponseError(f"LLM output failed validation: {str(last_error)[:300]}")
 
-    async def _chat(self, messages: list[dict[str, str]], usage: Optional[TokenUsage]) -> str:
+    async def _chat(
+        self,
+        messages: list[dict[str, str]],
+        usage: Optional[TokenUsage],
+        max_completion_tokens: Optional[int] = None,
+    ) -> str:
         try:
             model = self._settings.require_llm_model()
         except ConfigurationError as exc:
@@ -137,6 +145,9 @@ class LlmClient:
             "temperature": self._settings.llm_temperature,
             "response_format": {"type": "json_object"},
         }
+        if max_completion_tokens is not None:
+            body["max_completion_tokens"] = max_completion_tokens
+
         response = await self._send("POST", "/chat/completions", body)
         try:
             payload = response.json()
@@ -173,9 +184,18 @@ class LlmClient:
                     raise LlmResponseError(f"LLM request rejected (HTTP 400): {_error_message(response)}")
                 if status < 400:
                     return response
+                if status == 413:
+                    raise LlmUnavailableError(
+                        f"LLM provider returned HTTP 413: {_error_message(response)}"
+                    )
                 if status not in RETRYABLE_STATUS_CODES:
-                    raise LlmUnavailableError(f"LLM provider returned HTTP {status}.")
-                error = f"LLM provider returned HTTP {status}"
+                    raise LlmUnavailableError(
+                        f"LLM provider returned HTTP {status}: {_error_message(response)}"
+                    )
+                error = (
+                    f"LLM provider returned HTTP {status}: "
+                    f"{_error_message(response)}"
+                )
 
             if attempt >= self._settings.llm_max_attempts:
                 raise LlmUnavailableError(error)

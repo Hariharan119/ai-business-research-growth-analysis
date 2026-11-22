@@ -35,3 +35,32 @@ def normalize_title(title: str) -> str:
 
 def sha256_hex(value: str) -> str:
     return hashlib.sha256((value or "").encode("utf-8")).hexdigest()
+
+
+def extract_plain_url(value: str) -> str:
+    """Extract a valid HTTP(S) URL from a plain or matching Markdown link."""
+    value = (value or "").strip()
+
+    # Accept Markdown only when its displayed URL matches its destination.
+    match = re.fullmatch(
+        r"\[(https?://[^\]\s]+)\]\((https?://[^)\s]+)\)",
+        value,
+        flags=re.IGNORECASE,
+    )
+
+    if match:
+        label, destination = match.groups()
+        if label != destination:
+            return ""
+        value = destination
+
+    if not value.lower().startswith(("http://", "https://")):
+        return ""
+
+    from urllib.parse import urlsplit
+
+    parts = urlsplit(value)
+    if not parts.hostname or any(char.isspace() for char in value):
+        return ""
+
+    return value

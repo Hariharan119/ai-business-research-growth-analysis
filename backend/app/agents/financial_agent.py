@@ -8,6 +8,7 @@ import logging
 from typing import Any
 
 from app.agents.state import ResearchState
+from app.core.companies import SUPPORTED_TICKERS
 from app.core.config import get_settings
 from app.database.session import get_session_factory
 from app.schemas.agent_schemas import (
@@ -135,7 +136,7 @@ def _compact_context(
 
     historical = forecast.get("historical_observations", [])
 
-    return {
+    context = {
         "financial_analysis": {
             "company": financial.get("company"),
             "data_quality": financial.get("data_quality"),
@@ -152,6 +153,36 @@ def _compact_context(
             "forecasts": forecast.get("forecast"),
         },
     }
+
+    # Keep the LLM request within the provider's per-minute token limit.
+    # The full forecast (including per-window backtest results) stays in the
+    # stored report; the agent receives the summary metrics only.
+    metadata = context["revenue_forecast"]["metadata"]
+    if isinstance(metadata, dict):
+        metadata = {
+            key: value for key, value in metadata.items()
+            if key not in ("aic", "bic", "order", "seasonal_order", "converged")
+        }
+        validation = metadata.get("validation")
+        if isinstance(validation, dict):
+            metadata["validation"] = {
+                key: value for key, value in validation.items()
+                if key != "windows"
+            }
+        context["revenue_forecast"]["metadata"] = metadata
+
+    rows = context["revenue_forecast"]["forecasts"]
+    if isinstance(rows, list):
+        context["revenue_forecast"]["forecasts"] = [
+            {
+                key: value for key, value in row.items()
+                if key not in ("period_end_is_estimated", "interval_confidence_level")
+            }
+            for row in rows
+            if isinstance(row, dict)
+        ]
+
+    return context
 
 def _collect_evidence(
     financial: dict[str, Any],
@@ -206,10 +237,10 @@ async def run_financial_agent(
 
     ticker = str(state.get("ticker", "")).strip().upper()
 
-    if ticker not in {"MSFT", "NVDA"}:
+    if ticker not in SUPPORTED_TICKERS:
         return {
             "financial_agent_error": (
-                f"Unsupported ticker: {ticker}. Use MSFT or NVDA."
+                f"Unsupported ticker: {ticker}. Supported tickers: {', '.join(sorted(SUPPORTED_TICKERS))}."
             )
         }
 
@@ -273,6 +304,7 @@ Rules:
                 user=user_prompt,
                 schema=FinancialAgentOutput,
                 usage=usage,
+                max_completion_tokens=1500,
             )
 
         # Only preserve evidence URLs originating from backend services.

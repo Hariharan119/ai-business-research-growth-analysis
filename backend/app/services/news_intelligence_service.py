@@ -9,6 +9,7 @@ from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import select
 
+from app.core.companies import COMPANIES_BY_TICKER, SUPPORTED_COMPANIES, company_aliases
 from app.models.company import Company
 from app.models.news_article import NewsArticle
 
@@ -58,9 +59,10 @@ OPPORTUNITY_KEYWORDS = {
     "contracts": ["contract win", "new contract", "supply agreement", "customer agreement"],
 }
 
+# Aliases come from the central company configuration.
 COMPANY_ALIASES = {
-    "MSFT": ["microsoft", "msft"],
-    "NVDA": ["nvidia", "nvda"],
+    company.ticker: company_aliases(company)
+    for company in SUPPORTED_COMPANIES
 }
 
 
@@ -98,7 +100,7 @@ def analyze_article(article, target_ticker: str, target_name: str) -> dict:
         if matches:
             competitors.append({
                 "ticker": ticker,
-                "name": "Microsoft" if ticker == "MSFT" else "NVIDIA",
+                "name": COMPANIES_BY_TICKER[ticker].name,
                 "matched_terms": matches,
             })
 

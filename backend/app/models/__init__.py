@@ -8,6 +8,9 @@ from app.models.news_article import NewsArticle
 __all__ = [
     "Company",
     "DataRefreshLog",
+    "ResearchReport",
     "FinancialRecord",
     "NewsArticle",
 ]
+
+from app.models.research_report import ResearchReport

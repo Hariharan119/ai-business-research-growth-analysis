@@ -16,12 +16,11 @@ from app.services.financial_analysis_service import _select_latest_versions
 MODEL_ORDER = (1, 1, 0)
 SEASONAL_ORDER = (1, 1, 0, 4)
 
-VALIDATION_SUMMARY = {
-    "method": "Two rolling 8-quarter validation windows",
-    "mean_mae_billions": 1.411,
-    "mean_rmse_billions": 1.782,
-    "mean_mape_percent": 2.157,
-}
+# Rolling-origin backtest settings. Metrics are computed from the stored
+# revenue series on every forecast request; nothing is hardcoded.
+VALIDATION_WINDOWS = 2
+VALIDATION_WINDOW_QUARTERS = 8
+MIN_TRAINING_QUARTERS = 12
 
 
 def build_quarterly_revenue_dataset(records):
@@ -31,6 +30,8 @@ def build_quarterly_revenue_dataset(records):
     Reported quarterly records are retained.
     Missing Q4 records are derived as annual revenue minus Q1-Q3.
     Derived observations retain their SEC source provenance.
+    Only the most recent continuous run of fiscal quarters is kept; the
+    number of excluded older observations is stored in df.attrs.
     """
     selected = _select_latest_versions(records)
 
@@ -63,8 +64,6 @@ def build_quarterly_revenue_dataset(records):
             "is_derived": False,
             "source_urls": [record.source_url] if record.source_url else [],
         })
-
-    derived_count = 0
 
     # Derive Q4 only where annual revenue and Q1-Q3 are available.
     for fiscal_year, annual_record in annual.items():
@@ -140,8 +139,6 @@ def build_quarterly_revenue_dataset(records):
             "source_urls": source_urls,
         })
 
-        derived_count += 1
-
     if not rows:
         raise ValueError("No usable quarterly revenue observations found")
 
@@ -152,10 +149,27 @@ def build_quarterly_revenue_dataset(records):
         )
     )
 
-    df = pd.DataFrame(rows)
+    quarter_numbers = [
+        row["fiscal_year"] * 4 + row["fiscal_quarter"]
+        for row in rows
+    ]
 
-    if df.duplicated(["fiscal_year", "fiscal_quarter"]).any():
+    if len(set(quarter_numbers)) != len(quarter_numbers):
         raise ValueError("Duplicate fiscal quarter in revenue dataset")
+
+    # Keep the most recent continuous run of fiscal quarters. Older
+    # observations separated by a reporting gap (for example years before
+    # quarterly XBRL data exists) cannot be modelled as one series.
+    segment_start = 0
+    for index in range(1, len(quarter_numbers)):
+        if quarter_numbers[index] - quarter_numbers[index - 1] != 1:
+            segment_start = index
+
+    excluded_count = segment_start
+    rows = rows[segment_start:]
+    derived_count = sum(1 for row in rows if row["is_derived"])
+
+    df = pd.DataFrame(rows)
 
     if df["unit"].nunique() != 1:
         raise ValueError("Revenue observations contain mixed units")
@@ -163,26 +177,152 @@ def build_quarterly_revenue_dataset(records):
     if (df["revenue"] <= 0).any():
         raise ValueError("Revenue observations must all be positive")
 
-    # Require a continuous quarterly sequence.
-    quarter_numbers = [
-        row["fiscal_year"] * 4 + row["fiscal_quarter"]
-        for row in rows
-    ]
-
-    if any(
-        current - previous != 1
-        for previous, current in zip(
-            quarter_numbers,
-            quarter_numbers[1:],
-        )
-    ):
-        raise ValueError("Revenue dataset contains missing fiscal quarters")
-
     df["revenue_billions"] = df["revenue"].map(
         lambda value: float(value / Decimal("1000000000"))
     )
+    df.attrs["excluded_observations"] = excluded_count
 
     return df, derived_count
+
+
+def future_period_ends(period_ends, horizon):
+    """
+    Estimate future fiscal quarter end dates from the company's own history.
+
+    Quarters that end on calendar month ends (for example Microsoft, fiscal
+    year ending 30 June) advance by three month ends. Quarters on a 52/53-week
+    calendar (for example NVIDIA, fiscal year ending on the last Sunday of
+    January) repeat the prior-year end date of the same fiscal quarter plus
+    52 weeks.
+
+    Returns (list of ISO dates, basis label).
+    """
+    ends = [pd.Timestamp(value) for value in period_ends]
+
+    if len(ends) < 4:
+        raise ValueError("At least four historical quarter ends are required")
+
+    if all(end.is_month_end for end in ends[-8:]):
+        basis = "calendar_month_end_quarters"
+        future = []
+        last = ends[-1]
+        for _ in range(horizon):
+            last = last + pd.offsets.MonthEnd(3)
+            future.append(last)
+    else:
+        basis = "52_53_week_fiscal_calendar_estimate"
+        extended = list(ends)
+        for _ in range(horizon):
+            extended.append(extended[-4] + pd.Timedelta(weeks=52))
+        future = extended[len(ends):]
+
+    return [end.date().isoformat() for end in future], basis
+
+
+def _fit_log_sarimax(values):
+    model = SARIMAX(
+        np.log(values),
+        order=MODEL_ORDER,
+        seasonal_order=SEASONAL_ORDER,
+        trend="n",
+        enforce_stationarity=False,
+        enforce_invertibility=False,
+    )
+    return model.fit(disp=False, maxiter=500)
+
+
+def _error_metrics(actual, predicted):
+    errors = predicted - actual
+    return {
+        "mae_billions": round(float(np.mean(np.abs(errors))), 3),
+        "rmse_billions": round(float(np.sqrt(np.mean(errors ** 2))), 3),
+        "mape_percent": round(float(np.mean(np.abs(errors / actual)) * 100), 3),
+    }
+
+
+def evaluate_rolling_forecast(
+    values,
+    labels=None,
+    windows=VALIDATION_WINDOWS,
+    window_quarters=VALIDATION_WINDOW_QUARTERS,
+):
+    """
+    Rolling-origin backtest computed from the revenue series.
+
+    Each window refits the model on all quarters before the window and
+    forecasts every quarter in the window. A seasonal naive baseline
+    (latest observed value of the same fiscal quarter) is scored on the
+    same quarters for comparison.
+    """
+    values = np.asarray(values, dtype=float)
+    labels = list(labels) if labels is not None else [str(i) for i in range(len(values))]
+    results = []
+
+    for window in range(windows, 0, -1):
+        origin = len(values) - window * window_quarters
+
+        if origin < MIN_TRAINING_QUARTERS:
+            results.append({"status": "insufficient_training_data"})
+            continue
+
+        actual = values[origin:origin + window_quarters]
+        period = f"{labels[origin]} to {labels[origin + window_quarters - 1]}"
+
+        try:
+            fitted = _fit_log_sarimax(values[:origin])
+        except Exception as exc:
+            results.append({"test_period": period, "status": f"fit_failed: {type(exc).__name__}"})
+            continue
+
+        if not fitted.mle_retvals.get("converged", False):
+            results.append({"test_period": period, "status": "not_converged"})
+            continue
+
+        predicted = np.exp(np.asarray(
+            fitted.get_forecast(steps=window_quarters).predicted_mean
+        ))
+        baseline = np.array([
+            values[origin - 4 + (step % 4)]
+            for step in range(window_quarters)
+        ])
+
+        results.append({
+            "test_period": period,
+            "training_quarters": int(origin),
+            "status": "completed",
+            "model": _error_metrics(actual, predicted),
+            "seasonal_naive": _error_metrics(actual, baseline),
+        })
+
+    completed = [item for item in results if item["status"] == "completed"]
+
+    summary = {
+        "method": (
+            f"Rolling-origin backtest: {windows} windows of "
+            f"{window_quarters} quarters, model refit before each window"
+        ),
+        "computed": True,
+        "windows_completed": len(completed),
+        "windows": results,
+    }
+
+    if not completed:
+        summary["status"] = "insufficient_data"
+        return summary
+
+    for key in ("mae_billions", "rmse_billions", "mape_percent"):
+        summary[f"mean_{key}"] = round(float(np.mean(
+            [item["model"][key] for item in completed]
+        )), 3)
+        summary[f"baseline_mean_{key}"] = round(float(np.mean(
+            [item["seasonal_naive"][key] for item in completed]
+        )), 3)
+
+    summary["beats_seasonal_naive"] = bool(
+        summary["mean_mape_percent"] < summary["baseline_mean_mape_percent"]
+    )
+    summary["status"] = "completed"
+    return summary
 
 
 def forecast_company_revenue(
@@ -195,7 +335,7 @@ def forecast_company_revenue(
     Generate a quarterly revenue forecast for a stored company.
 
     Returns historical data, forecast values, prediction intervals,
-    model metadata, and SEC source provenance.
+    rolling validation metrics, model metadata, and SEC source provenance.
     """
     if not isinstance(horizon, int) or horizon < 1 or horizon > 8:
         raise ValueError("horizon must be an integer from 1 to 8")
@@ -224,21 +364,16 @@ def forecast_company_revenue(
 
     if len(history) < 20:
         raise ValueError(
-            "At least 20 quarterly observations are required for forecasting"
+            "At least 20 continuous quarterly observations are required for forecasting"
         )
 
     values = history["revenue_billions"].astype(float).to_numpy()
+    labels = [
+        f"FY{int(year)} Q{int(quarter)}"
+        for year, quarter in zip(history["fiscal_year"], history["fiscal_quarter"])
+    ]
 
-    model = SARIMAX(
-        np.log(values),
-        order=MODEL_ORDER,
-        seasonal_order=SEASONAL_ORDER,
-        trend="n",
-        enforce_stationarity=False,
-        enforce_invertibility=False,
-    )
-
-    fitted = model.fit(disp=False, maxiter=500)
+    fitted = _fit_log_sarimax(values)
 
     if not fitted.mle_retvals.get("converged", False):
         raise RuntimeError("SARIMAX model did not converge")
@@ -255,12 +390,11 @@ def forecast_company_revenue(
     upper_values = np.exp(interval_log[:, 1])
 
     last_date = pd.Timestamp(history.iloc[-1]["period_end"])
-
-    future_dates = pd.date_range(
-        start=last_date + pd.Timedelta(days=1),
-        periods=horizon,
-        freq=pd.offsets.QuarterEnd(),
+    future_dates, period_end_basis = future_period_ends(
+        history["period_end"], horizon
     )
+
+    validation = evaluate_rolling_forecast(values, labels)
 
     fiscal_year = int(history.iloc[-1]["fiscal_year"])
     fiscal_quarter = int(history.iloc[-1]["fiscal_quarter"])
@@ -277,10 +411,12 @@ def forecast_company_revenue(
         forecast_rows.append({
             "fiscal_year": fiscal_year,
             "fiscal_quarter": fiscal_quarter,
-            "period_end": future_dates[index].date().isoformat(),
+            "period_end": future_dates[index],
+            "period_end_is_estimated": True,
             "forecast_revenue_billions": float(forecast_values[index]),
-            "lower_95_billions": float(lower_values[index]),
-            "upper_95_billions": float(upper_values[index]),
+            "lower_billions": float(lower_values[index]),
+            "upper_billions": float(upper_values[index]),
+            "interval_confidence_level": confidence_level,
         })
 
     historical_rows = []
@@ -295,6 +431,38 @@ def forecast_company_revenue(
             "source_urls": row["source_urls"],
         })
 
+    excluded_count = int(history.attrs.get("excluded_observations", 0))
+
+    limitations = [
+        "Historical Q4 observations may be derived from annual revenue less Q1-Q3.",
+        "Prediction intervals are model-based, not guarantees.",
+        "Future period end dates are estimated from the company's historical fiscal calendar.",
+        "Forecasts are estimates, not investment recommendations.",
+    ]
+
+    # Report weak backtest performance honestly in the forecast itself.
+    if validation.get("status") != "completed":
+        limitations.append(
+            "The rolling backtest could not be completed; forecast accuracy is unverified."
+        )
+    elif not validation["beats_seasonal_naive"]:
+        limitations.append(
+            f"In backtesting the model did not beat a seasonal naive baseline "
+            f"(MAPE {validation['mean_mape_percent']}% vs "
+            f"{validation['baseline_mean_mape_percent']}%). Treat this forecast as low confidence."
+        )
+    elif validation["mean_mape_percent"] > 15:
+        limitations.append(
+            f"Backtest MAPE is {validation['mean_mape_percent']}%; forecast accuracy "
+            "is low for this company."
+        )
+
+    if excluded_count:
+        limitations.append(
+            f"{excluded_count} older quarterly observations before the most recent "
+            "reporting gap were excluded from the model."
+        )
+
     metadata = {
         "model": "SARIMAX",
         "order": MODEL_ORDER,
@@ -305,16 +473,15 @@ def forecast_company_revenue(
         "training_observations": len(history),
         "reported_observations": int((~history["is_derived"]).sum()),
         "derived_observations": derived_count,
+        "excluded_observations": excluded_count,
+        "first_historical_period": labels[0],
         "latest_historical_period": last_date.date().isoformat(),
         "forecast_horizon": horizon,
         "confidence_level": confidence_level,
-        "validation": VALIDATION_SUMMARY,
+        "period_end_basis": period_end_basis,
+        "validation": validation,
         "unit": history.iloc[0]["unit"],
-        "limitations": [
-            "Historical Q4 observations may be derived from annual revenue less Q1-Q3.",
-            "Prediction intervals are model-based, not guarantees.",
-            "Forecasts are estimates, not investment recommendations.",
-        ],
+        "limitations": limitations,
     }
 
     return {

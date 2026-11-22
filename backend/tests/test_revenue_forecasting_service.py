@@ -3,8 +3,12 @@ from datetime import date
 from decimal import Decimal
 from types import SimpleNamespace
 
+import numpy as np
+
 from app.services.revenue_forecasting_service import (
     build_quarterly_revenue_dataset,
+    evaluate_rolling_forecast,
+    future_period_ends,
 )
 
 
@@ -99,3 +103,58 @@ def test_reported_q4_is_not_derived_again():
     assert q4["revenue"] == Decimal("17")
     assert not q4["is_derived"]
     assert len(q4["source_urls"]) == 1
+
+def test_reporting_gap_keeps_most_recent_continuous_run():
+    records = make_fy2024_records(include_q4=True) + [
+        make_record(
+            "Revenue", "quarterly", 2022, 1, 8,
+            date(2021, 7, 1), date(2021, 9, 30), 10
+        ),
+        make_record(
+            "Revenue", "quarterly", 2022, 2, 9,
+            date(2021, 10, 1), date(2021, 12, 31), 11
+        ),
+    ]
+
+    df, derived_count = build_quarterly_revenue_dataset(records)
+
+    assert len(df) == 4
+    assert df.attrs["excluded_observations"] == 2
+    assert list(df["fiscal_year"]) == [2024, 2024, 2024, 2024]
+    assert derived_count == 0
+
+
+def test_future_period_ends_month_end_calendar():
+    ends = [date(2025, 9, 30), date(2025, 12, 31), date(2026, 3, 31), date(2026, 6, 30)]
+
+    future, basis = future_period_ends(ends, 4)
+
+    assert basis == "calendar_month_end_quarters"
+    assert future == ["2026-09-30", "2026-12-31", "2027-03-31", "2027-06-30"]
+
+
+def test_future_period_ends_52_53_week_calendar():
+    # NVIDIA-style quarters ending on Sundays near the end of Apr/Jul/Oct/Jan.
+    ends = [date(2025, 4, 27), date(2025, 7, 27), date(2025, 10, 26), date(2026, 1, 25)]
+
+    future, basis = future_period_ends(ends, 2)
+
+    assert basis == "52_53_week_fiscal_calendar_estimate"
+    assert future == ["2026-04-26", "2026-07-26"]
+
+
+def test_rolling_validation_metrics_are_computed():
+    quarters = np.arange(40)
+    seasonal = np.array([1.00, 1.05, 0.97, 1.10])[quarters % 4]
+    noise = 1 + 0.01 * np.sin(quarters * 1.7)
+    values = 10 * (1.02 ** quarters) * seasonal * noise
+
+    summary = evaluate_rolling_forecast(values)
+
+    assert summary["computed"] is True
+    assert summary["windows_completed"] == 2
+    assert summary["status"] == "completed"
+    assert summary["mean_mape_percent"] >= 0
+    assert summary["baseline_mean_mape_percent"] >= 0
+    assert isinstance(summary["beats_seasonal_naive"], bool)
+    assert [w["training_quarters"] for w in summary["windows"]] == [24, 32]
