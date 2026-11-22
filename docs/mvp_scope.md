@@ -20,8 +20,7 @@ AI-powered financial research, analytics and decision-support application with a
 5. **Multi-Agent AI Research and Decision-Support Reports.** Three LangGraph agents producing a stored, evidence-referenced report.
 
 ## Supported Companies
-Implemented: Microsoft (CIK 0000789019) and NVIDIA (CIK 0001045810).
-Planned: Apple (CIK 0000320193), Alphabet (CIK 0001652044), Amazon (CIK 0001018724).
+Microsoft (CIK 0000789019), NVIDIA (CIK 0001045810), Apple (CIK 0000320193), Alphabet (CIK 0001652044), Amazon (CIK 0001018724), Meta Platforms (CIK 0001326801). All are defined in `backend/app/core/companies.py`.
 
 ## Postponed Features
 - Stock price prediction.

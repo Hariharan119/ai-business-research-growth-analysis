@@ -44,7 +44,7 @@ Financial and business information is distributed across regulatory filings and 
 - **SEC EDGAR API** (companyfacts and submissions): annual and quarterly financial data.
 - **NewsData.io API**: news article metadata, snippets and links.
 
-Supported companies: Microsoft (MSFT) and NVIDIA (NVDA), configured in `backend/app/core/companies.py`. Apple, Alphabet and Amazon are planned.
+Supported companies: Microsoft (MSFT), NVIDIA (NVDA), Apple (AAPL), Alphabet (GOOGL), Amazon (AMZN) and Meta Platforms (META), configured in one place: `backend/app/core/companies.py`. The end-to-end acceptance test runs on MSFT.
 
 ## Team
 
