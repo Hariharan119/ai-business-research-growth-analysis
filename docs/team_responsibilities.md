@@ -6,8 +6,8 @@ Responsibilities are proposed and may be adjusted by the team.
 |---|---|---|
 | Primary focus | Architecture and integration | AI workflow, analytics and frontend |
 | Backend | FastAPI coordination, API design | Service logic for analysis |
-| Database | Azure SQL design, models, migrations | Query requirements for analysis |
-| Data integration | SEC EDGAR and GDELT integration | News classification logic |
+| Database | SQLite schema and models (Azure SQL migration planned) | Query requirements for analysis |
+| Data integration | SEC EDGAR and NewsData.io integration | News classification logic |
 | AI | LLM provider configuration | LangGraph workflow and agents |
 | Analytics | Data storage of results | Financial calculations and forecasting |
 | Frontend | API contract | React frontend coordination |

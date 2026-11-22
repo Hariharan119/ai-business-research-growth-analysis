@@ -1,11 +1,11 @@
 # Multi-Agent AI-Powered Business Research & Growth Analysis System
 
 **Domain:** Finance
-**Status:** Planning and architecture (Day 1). Application code is not yet implemented.
+**Status:** Backend MVP implemented and verified in Google Colab (FastAPI, SQLite, three LangGraph agents). React frontend and Azure deployment are planned.
 
 ## Project Overview
 
-An AI-powered financial research and decision-support application that combines SEC EDGAR financial data, historical growth analysis, basic revenue forecasting and GDELT business news intelligence. Three specialised LangGraph agents coordinate the analysis and produce evidence-backed research reports.
+An AI-powered financial research and decision-support application that combines SEC EDGAR financial data, historical growth analysis, basic revenue forecasting and NewsData.io business news intelligence. Three specialised LangGraph agents coordinate the analysis and produce evidence-backed research reports.
 
 ## Business Problem
 
@@ -13,11 +13,11 @@ Financial and business information is distributed across regulatory filings and 
 
 ## Proposed Solution
 
-- Collect financial data from SEC EDGAR and news metadata from GDELT.
+- Collect financial data from SEC EDGAR and news metadata from NewsData.io.
 - Perform financial calculations deterministically in Python (Pandas, NumPy).
 - Estimate future revenue trends with Statsmodels time-series models compared against a baseline.
 - Use LLM-assisted agents for interpretation, news classification and report generation.
-- Store data, reports and execution history in Azure SQL Database.
+- Store data, reports and refresh history in SQLite during development (Azure SQL Database is planned for deployment).
 
 ## Key MVP Features
 
@@ -31,20 +31,20 @@ Financial and business information is distributed across regulatory filings and 
 
 | Layer | Technology |
 |---|---|
-| Frontend | React, TypeScript, Vite, Tailwind CSS, Recharts |
+| Frontend (planned) | React, TypeScript, Vite, Tailwind CSS, Recharts |
 | Backend | Python, FastAPI, Pydantic, SQLAlchemy |
-| Multi-agent AI | LangGraph, configurable hosted LLM API |
+| Multi-agent AI | LangGraph (sequential workflow), Groq-hosted LLM via an OpenAI-compatible API |
 | Financial analysis | Pandas, NumPy, Statsmodels |
-| Database | Microsoft Azure SQL Database |
-| DevOps | GitHub, Docker, GitHub Actions, Microsoft Azure |
+| Database | SQLite (current); Microsoft Azure SQL Database (planned) |
+| DevOps | GitHub (current); Docker, GitHub Actions, Microsoft Azure (planned) |
 | Testing | Pytest, React Testing Library |
 
 ## Data Sources
 
 - **SEC EDGAR API** (companyfacts and submissions): annual and quarterly financial data.
-- **GDELT DOC API**: news article metadata and links.
+- **NewsData.io API**: news article metadata, snippets and links.
 
-Initial companies: Microsoft, Apple, Alphabet, Amazon, NVIDIA.
+Supported companies: Microsoft (MSFT) and NVIDIA (NVDA), configured in `backend/app/core/companies.py`. Apple, Alphabet and Amazon are planned.
 
 ## Team
 
@@ -72,7 +72,7 @@ Component, data flow, workflow and sequence diagrams are available in [docs/arch
 
 ## Setup Instructions
 
-To be added after backend and frontend foundations are implemented.
+The backend is currently built and verified by running the project notebook in Google Colab (Runtime > Run all) with the `GITHUB_TOKEN`, `GROQ_API_KEY`, `NEWSDATA_API_KEY` and `SEC_USER_AGENT` secrets. Local setup instructions will be added when the project moves to VS Code.
 
 ## Disclaimer
 
