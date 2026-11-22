@@ -4,60 +4,88 @@
 
 ```mermaid
 flowchart LR
-    U["User"] --> FE["React Frontend"]
-    FE -->|"REST requests"| API["FastAPI Backend"]
-    API --> AUTH["Request Validation (authentication planned)"]
-    AUTH --> DP["Data Processing and Normalisation Service"]
-    SEC["SEC EDGAR API"] --> DP
-    GD["NewsData.io API"] --> DP
-    DP --> DB[("SQLite Database (Azure SQL planned)")]
-    DB --> FIN["Financial Analysis Service"]
-    FIN --> FC["Growth Forecasting Service"]
-    AUTH --> LG["LangGraph Orchestration"]
-    LG --> A1["Financial Analysis and Forecasting Agent"]
-    LG --> A2["Business News Intelligence Agent"]
-    FIN --> A1
-    FC --> A1
-    DB --> A2
-    A1 --> A3["Strategic Research and Decision Support Agent"]
-    A2 --> A3
-    A1 -.-> LLM["Configurable LLM API"]
-    A2 -.-> LLM
-    A3 -.-> LLM
-    A3 --> RPT["Research Report Generation"]
-    RPT --> DB
-    RPT --> API
-    API -->|"Results returned to React"| FE
+    subgraph sg1[Users]
+        U[Analyst]
+    end
+
+    subgraph sg2[Application]
+        FE[React Dashboard<br/>planned]
+        API[FastAPI Backend]
+        DB[SQLite Database]
+    end
+
+    subgraph sg3[Public Data Sources]
+        SEC[SEC EDGAR<br/>financial filings]
+        GD[NewsData.io<br/>business news]
+    end
+
+    subgraph sg4[Analysis and AI]
+        CALC[Python Analysis<br/>and Forecasting]
+        AG[Three AI Agents<br/>LangGraph]
+        LLM[LLM API]
+    end
+
+    U -->|selects company| FE
+    FE -->|request| API
+    SEC -->|financial data| API
+    GD -->|news links| API
+    API -->|stores data| DB
+    DB -->|data| CALC
+    CALC -->|metrics and forecasts| AG
+    AG -.->|interpretation| LLM
+    AG -->|research report| DB
+    DB -->|stored report| API
+    API -->|results| FE
+
+    classDef user fill:#E8F1FB,stroke:#2B6CB0,color:#1A365D
+    classDef app fill:#E6FFFA,stroke:#2C7A7B,color:#234E52
+    classDef data fill:#FFF5E6,stroke:#C05621,color:#7B341E
+    classDef ai fill:#F3E8FF,stroke:#6B46C1,color:#44337A
+    class U user
+    class FE,API,DB app
+    class SEC,GD data
+    class CALC,AG,LLM ai
 ```
 
 ## 2. Data Flow
 
 ```mermaid
-flowchart TD
-    S1["1. User selects a company"] --> S2["2. React sends request to FastAPI"]
-    S2 --> S3["3. FastAPI validates the request"]
-    S3 --> S4["4. Backend retrieves SEC financial data and NewsData.io news"]
-    S4 --> S5["5. Data is cleaned and normalised"]
-    S5 --> S6[("6. Processed data saved in SQLite")]
-    S6 --> S7["7. Financial calculations and forecasting"]
-    S7 --> S8["8. LangGraph coordinates three AI agents"]
-    S8 --> S9["9. Final agent combines findings and generates insights"]
-    S9 --> S10[("10. Evidence-backed report saved in SQLite")]
-    S10 --> S11["11. Results returned as JSON (React display planned)"]
+flowchart LR
+    S1[Step 1<br/>Select company] --> S2[Step 2<br/>Collect SEC and news data]
+    S2 --> S3[Step 3<br/>Clean and store data]
+    S3 --> S4[Step 4<br/>Calculate growth<br/>and forecasts]
+    S4 --> S5[Step 5<br/>AI agents<br/>analyse findings]
+    S5 --> S6[Step 6<br/>Save and display<br/>research report]
+
+    classDef step fill:#E8F1FB,stroke:#2B6CB0,color:#1A365D
+    classDef final fill:#E6FFFA,stroke:#2C7A7B,color:#234E52
+    class S1,S2,S3,S4,S5 step
+    class S6 final
 ```
 
 ## 3. LangGraph Agent Workflow
 
 ```mermaid
 flowchart TD
-    Start(["Research request"]) --> V["Validate company selection"]
-    V --> F["Fetch and prepare data"]
-    F --> A1["Financial Analysis and Forecasting Agent"]
-    A1 --> A2["Business News Intelligence Agent"]
-    A2 --> A3["Strategic Research and Decision Support Agent"]
-    A3 --> VE["Validate evidence and structured output"]
-    VE --> SV["Save report and agent execution history"]
-    SV --> Done(["Display results in React"])
+    Start[Research request] --> Prep[Validate request<br/>and prepare data]
+
+    subgraph sg1[Run sequentially]
+        FA[Financial Agent<br/>numbers and forecasts]
+        NA[News Agent<br/>headlines and developments]
+    end
+
+    Prep --> FA
+    FA --> NA
+    NA --> SA[Strategic Agent<br/>combines both findings]
+    SA --> Check[Evidence check]
+    Check --> Out[Save and display report]
+
+    classDef agent fill:#F3E8FF,stroke:#6B46C1,color:#44337A
+    classDef step fill:#E8F1FB,stroke:#2B6CB0,color:#1A365D
+    classDef final fill:#E6FFFA,stroke:#2C7A7B,color:#234E52
+    class FA,NA,SA agent
+    class Start,Prep,Check step
+    class Out final
 ```
 
 ## 4. Sequence Diagram
